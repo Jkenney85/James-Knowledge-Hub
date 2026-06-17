@@ -1,0 +1,412 @@
+//@version=6
+strategy("Confirmed VWAP Pullback Futures Strategy", overlay=true, pyramiding=0, process_orders_on_close=true, calc_on_every_tick=false, max_labels_count=500, max_lines_count=500, slippage=1, commission_type=strategy.commission.cash_per_contract, commission_value=0.00)
+
+groupCosts = "00. Backtest Costs"
+costSlippageTicksNote = input.int(1, "Slippage note, ticks", minval=0, group=groupCosts, tooltip="TradingView strategy costs are controlled by the strategy() declaration or Strategy Properties. Default declaration uses 1 tick.")
+costCommissionNote = input.float(0.00, "Commission note, cash/contract", minval=0.0, step=0.01, group=groupCosts, tooltip="TradingView strategy costs are controlled by the strategy() declaration or Strategy Properties. Default declaration uses 0.00 cash per contract.")
+
+// -----------------------------------------------------------------------------
+// Contract presets and manual overrides
+// -----------------------------------------------------------------------------
+groupPreset = "01. Contract Preset"
+preset = input.string("ES/MES", "Contract preset", options=["ES/MES", "NQ/MNQ", "CL/MCL", "GC/MGC", "Manual"], group=groupPreset)
+usePresetValues = input.bool(true, "Use preset values", group=groupPreset)
+
+f_presetBandMult(string p) =>
+    p == "NQ/MNQ" ? 0.70 : p == "CL/MCL" ? 0.55 : p == "GC/MGC" ? 0.60 : 0.50
+
+f_presetVolMult(string p) =>
+    p == "NQ/MNQ" ? 1.15 : p == "CL/MCL" ? 1.10 : p == "GC/MGC" ? 1.05 : 1.10
+
+f_presetAdxMin(string p) =>
+    p == "NQ/MNQ" ? 20.0 : p == "CL/MCL" ? 18.0 : p == "GC/MGC" ? 16.0 : 18.0
+
+f_presetMaxAtrDist(string p) =>
+    p == "NQ/MNQ" ? 1.00 : p == "CL/MCL" ? 1.15 : p == "GC/MGC" ? 1.20 : 1.10
+
+f_presetStopTicks(string p) =>
+    p == "NQ/MNQ" ? 12 : p == "CL/MCL" ? 8 : p == "GC/MGC" ? 10 : 6
+
+f_presetWickPct(string p) =>
+    p == "CL/MCL" ? 35.0 : p == "GC/MGC" ? 28.0 : 30.0
+
+f_presetBodyPct(string p) =>
+    p == "CL/MCL" ? 25.0 : 20.0
+
+f_presetClosePct(string p) =>
+    p == "CL/MCL" ? 68.0 : 65.0
+
+groupVwap = "02. VWAP"
+showVwap = input.bool(true, "Show VWAP", group=groupVwap)
+showBands = input.bool(true, "Show VWAP bands", group=groupVwap)
+bandMethod = input.string("Standard Deviation", "Band method", options=["Standard Deviation", "ATR Offset"], group=groupVwap)
+manualBandMult = input.float(0.50, "Manual band multiplier", minval=0.0, step=0.05, group=groupVwap)
+slopeLookback = input.int(8, "VWAP slope lookback", minval=1, group=groupVwap)
+manualMinSlopeTicks = input.float(0.05, "Manual minimum VWAP slope, ticks/bar", minval=0.0, step=0.01, group=groupVwap)
+enableVwapSlopeFilter = input.bool(true, "Enable VWAP slope filter", group=groupVwap)
+
+groupTrend = "03. Trend Filters"
+enableEmaFilter = input.bool(true, "Enable EMA filter", group=groupTrend)
+emaFastLen = input.int(50, "Fast EMA length", minval=1, group=groupTrend)
+emaSlowLen = input.int(200, "Slow EMA length", minval=1, group=groupTrend)
+emaMode = input.string("Fast over slow plus price", "EMA condition", options=["Fast EMA", "Slow EMA", "Fast and slow EMA", "Fast over slow plus price"], group=groupTrend)
+enableSupertrend = input.bool(false, "Enable Supertrend filter", group=groupTrend)
+supertrendAtrLen = input.int(10, "Supertrend ATR length", minval=1, group=groupTrend)
+supertrendFactor = input.float(3.0, "Supertrend factor", minval=0.1, step=0.1, group=groupTrend)
+enableHtfFilter = input.bool(false, "Enable higher-timeframe filter", group=groupTrend)
+htfTimeframe = input.timeframe("15", "Higher timeframe", group=groupTrend)
+htfFastLen = input.int(50, "HTF fast EMA length", minval=1, group=groupTrend)
+htfSlowLen = input.int(200, "HTF slow EMA length", minval=1, group=groupTrend)
+htfMode = input.string("EMA trend", "HTF condition", options=["EMA trend", "VWAP bias"], group=groupTrend)
+
+groupVolume = "04. Volume"
+enableVolumeFilter = input.bool(true, "Enable volume filter", group=groupVolume)
+volumeMaLen = input.int(20, "Volume MA length", minval=1, group=groupVolume)
+manualVolumeMult = input.float(1.10, "Manual volume multiplier", minval=0.0, step=0.05, group=groupVolume)
+
+groupRejection = "05. Rejection Candle"
+rejectionMode = input.string("Strict", "Rejection mode", options=["Strict", "Relaxed"], group=groupRejection)
+manualMinWickPct = input.float(30.0, "Manual minimum rejection wick %", minval=0.0, maxval=100.0, step=1.0, group=groupRejection)
+manualMinBodyPct = input.float(20.0, "Manual minimum body %", minval=0.0, maxval=100.0, step=1.0, group=groupRejection)
+manualCloseLocationPct = input.float(65.0, "Manual close location threshold %", minval=50.0, maxval=100.0, step=1.0, group=groupRejection)
+enableCandleStrengthFilter = input.bool(true, "Enable candle strength filter", group=groupRejection)
+
+groupChop = "06. Chop Filter"
+enableChopFilter = input.bool(true, "Enable chop filter", group=groupChop)
+adxLen = input.int(14, "ADX length", minval=1, group=groupChop)
+manualMinAdx = input.float(18.0, "Manual minimum ADX", minval=0.0, step=0.5, group=groupChop)
+atrCompressionLookback = input.int(20, "ATR compression lookback", minval=1, group=groupChop)
+atrCompressionThreshold = input.float(0.85, "ATR compression threshold", minval=0.1, step=0.05, group=groupChop)
+
+groupDistance = "07. Distance Filter"
+enableDistanceFilter = input.bool(true, "Enable distance-from-VWAP filter", group=groupDistance)
+manualMaxAtrDistance = input.float(1.10, "Manual max ATR distance from VWAP", minval=0.0, step=0.05, group=groupDistance)
+maxTickDistance = input.int(0, "Max tick distance from VWAP, 0 disables", minval=0, group=groupDistance)
+maxPercentDistance = input.float(0.0, "Max percent distance from VWAP, 0 disables", minval=0.0, step=0.01, group=groupDistance)
+
+groupSignals = "08. Signals and Sessions"
+enableLongs = input.bool(true, "Enable longs", group=groupSignals)
+enableShorts = input.bool(true, "Enable shorts", group=groupSignals)
+minTradeGrade = input.string("C", "Minimum grade to trade", options=["A+", "A", "B", "C"], group=groupSignals)
+hideCGradeSignals = input.bool(false, "Hide C-grade labels visually", group=groupSignals)
+enableSessionFilter = input.bool(true, "Enable session filter", group=groupSignals)
+tradeSession = input.session("0930-1555", "Trade session", group=groupSignals)
+sessionTimezone = input.string("America/New_York", "Session timezone", group=groupSignals)
+enableMaxSignals = input.bool(true, "Limit signals per session", group=groupSignals)
+maxLongSignals = input.int(3, "Maximum long signals per session", minval=0, group=groupSignals)
+maxShortSignals = input.int(3, "Maximum short signals per session", minval=0, group=groupSignals)
+maxTotalSignals = input.int(5, "Maximum total signals per session", minval=0, group=groupSignals)
+
+groupRisk = "09. Stops and Targets"
+riskReward = input.float(1.50, "Risk/reward target", minval=0.1, step=0.1, group=groupRisk)
+manualStopBufferTicks = input.int(6, "Manual stop buffer, ticks", minval=0, group=groupRisk)
+atrLen = input.int(14, "ATR length", minval=1, group=groupRisk)
+atrStopBufferMult = input.float(0.00, "Additional ATR stop buffer", minval=0.0, step=0.05, group=groupRisk)
+exitOnOppositeSignal = input.bool(true, "Exit on opposite signal", group=groupRisk)
+forceExitAtSessionEnd = input.bool(true, "Force flat when session ends", group=groupRisk)
+
+groupVisual = "10. Visuals"
+showEma = input.bool(true, "Show EMAs", group=groupVisual)
+showSupertrend = input.bool(false, "Show Supertrend", group=groupVisual)
+showEntryLabels = input.bool(true, "Show entry labels", group=groupVisual)
+showTradeLevels = input.bool(true, "Show active stop/target", group=groupVisual)
+showBiasBackground = input.bool(true, "Show trend-bias background", group=groupVisual)
+showDashboard = input.bool(true, "Show dashboard", group=groupVisual)
+dashboardPosition = input.string("Top Right", "Dashboard position", options=["Top Right", "Top Left", "Bottom Right", "Bottom Left"], group=groupVisual)
+enableDynamicAlerts = input.bool(true, "Use dynamic alert() messages", group=groupVisual)
+
+bandMult = usePresetValues and preset != "Manual" ? f_presetBandMult(preset) : manualBandMult
+volumeMult = usePresetValues and preset != "Manual" ? f_presetVolMult(preset) : manualVolumeMult
+minAdx = usePresetValues and preset != "Manual" ? f_presetAdxMin(preset) : manualMinAdx
+maxAtrDistance = usePresetValues and preset != "Manual" ? f_presetMaxAtrDist(preset) : manualMaxAtrDistance
+stopBufferTicks = usePresetValues and preset != "Manual" ? f_presetStopTicks(preset) : manualStopBufferTicks
+minWickPct = usePresetValues and preset != "Manual" ? f_presetWickPct(preset) : manualMinWickPct
+minBodyPct = usePresetValues and preset != "Manual" ? f_presetBodyPct(preset) : manualMinBodyPct
+closeLocationPct = usePresetValues and preset != "Manual" ? f_presetClosePct(preset) : manualCloseLocationPct
+minSlopeTicks = usePresetValues and preset != "Manual" ? (preset == "NQ/MNQ" ? 0.08 : preset == "CL/MCL" ? 0.06 : 0.05) : manualMinSlopeTicks
+
+// -----------------------------------------------------------------------------
+// Helpers
+// -----------------------------------------------------------------------------
+f_rank(string grade) =>
+    grade == "A+" ? 4 : grade == "A" ? 3 : grade == "B" ? 2 : 1
+
+f_gradeAllowed(string grade, string minimumGrade) =>
+    f_rank(grade) >= f_rank(minimumGrade)
+
+f_grade(int score) =>
+    score >= 11 ? "A+" : score >= 9 ? "A" : score >= 7 ? "B" : "C"
+
+f_passFail(bool value) =>
+    value ? "PASS" : "FAIL"
+
+f_tablePosition(string pos) =>
+    pos == "Top Left" ? position.top_left : pos == "Bottom Right" ? position.bottom_right : pos == "Bottom Left" ? position.bottom_left : position.top_right
+
+f_filterText(bool isLong, bool emaOk, bool stOk, bool htfOk, bool volOk, bool chopOk, bool slopeOk, bool distOk, bool sessOk) =>
+    (isLong ? "L" : "S") + " EMA " + f_passFail(emaOk) + ", ST " + f_passFail(stOk) + ", HTF " + f_passFail(htfOk) + ", VOL " + f_passFail(volOk) + ", CHOP " + f_passFail(chopOk) + ", SLOPE " + f_passFail(slopeOk) + ", DIST " + f_passFail(distOk) + ", SESS " + f_passFail(sessOk)
+
+f_entryMessage(string direction, string grade, float entryPrice, float stopPrice, float targetPrice, float rr, string filters) =>
+    syminfo.ticker + " " + timeframe.period + " " + direction + " " + grade + " entry=" + str.tostring(entryPrice, format.mintick) + " stop=" + str.tostring(stopPrice, format.mintick) + " target=" + str.tostring(targetPrice, format.mintick) + " RR=" + str.tostring(rr, "#.##") + " " + filters
+
+// -----------------------------------------------------------------------------
+// Core calculations
+// -----------------------------------------------------------------------------
+newDay = timeframe.change("D")
+vwapAnchor = newDay
+[sessionVwap, stdevUpper, stdevLower] = ta.vwap(hlc3, vwapAnchor, bandMult)
+atr = ta.atr(atrLen)
+atrUpper = sessionVwap + atr * bandMult
+atrLower = sessionVwap - atr * bandMult
+upperBand = bandMethod == "Standard Deviation" ? stdevUpper : atrUpper
+lowerBand = bandMethod == "Standard Deviation" ? stdevLower : atrLower
+vwapSlopeTicks = not na(sessionVwap[slopeLookback]) ? (sessionVwap - sessionVwap[slopeLookback]) / syminfo.mintick / slopeLookback : 0.0
+
+emaFast = ta.ema(close, emaFastLen)
+emaSlow = ta.ema(close, emaSlowLen)
+emaLongRaw = emaMode == "Fast EMA" ? close > emaFast : emaMode == "Slow EMA" ? close > emaSlow : emaMode == "Fast and slow EMA" ? close > emaFast and close > emaSlow : close > emaFast and emaFast > emaSlow
+emaShortRaw = emaMode == "Fast EMA" ? close < emaFast : emaMode == "Slow EMA" ? close < emaSlow : emaMode == "Fast and slow EMA" ? close < emaFast and close < emaSlow : close < emaFast and emaFast < emaSlow
+emaLongPass = not enableEmaFilter or emaLongRaw
+emaShortPass = not enableEmaFilter or emaShortRaw
+
+[supertrendLine, supertrendDirection] = ta.supertrend(supertrendFactor, supertrendAtrLen)
+supertrendBull = supertrendDirection < 0
+supertrendBear = supertrendDirection > 0
+supertrendLongPass = not enableSupertrend or supertrendBull
+supertrendShortPass = not enableSupertrend or supertrendBear
+
+[htfClose, htfEmaFast, htfEmaSlow, htfVwap] = request.security(syminfo.tickerid, htfTimeframe, [close[1], ta.ema(close, htfFastLen)[1], ta.ema(close, htfSlowLen)[1], ta.vwap(hlc3)[1]], lookahead=barmerge.lookahead_off)
+htfLongRaw = htfMode == "EMA trend" ? htfClose > htfEmaFast and htfEmaFast > htfEmaSlow : htfClose > htfVwap
+htfShortRaw = htfMode == "EMA trend" ? htfClose < htfEmaFast and htfEmaFast < htfEmaSlow : htfClose < htfVwap
+htfLongPass = not enableHtfFilter or htfLongRaw
+htfShortPass = not enableHtfFilter or htfShortRaw
+
+volumeMa = ta.sma(volume, volumeMaLen)
+volumeRawPass = not na(volumeMa) and volume > volumeMa * volumeMult
+volumePass = not enableVolumeFilter or volumeRawPass
+
+[plusDi, minusDi, adxValue] = ta.dmi(adxLen, adxLen)
+atrBaseline = ta.sma(atr, atrCompressionLookback)
+atrCompressionRatio = not na(atrBaseline) and atrBaseline > 0 ? atr / atrBaseline : 1.0
+chopRawPass = adxValue >= minAdx and atrCompressionRatio >= atrCompressionThreshold
+chopPass = not enableChopFilter or chopRawPass
+
+distanceAtr = atr > 0 ? math.abs(close - sessionVwap) / atr : 0.0
+distanceTicks = math.abs(close - sessionVwap) / syminfo.mintick
+distancePercent = sessionVwap != 0 ? math.abs(close - sessionVwap) / sessionVwap * 100.0 : 0.0
+distanceRawPass = distanceAtr <= maxAtrDistance and (maxTickDistance == 0 or distanceTicks <= maxTickDistance) and (maxPercentDistance == 0.0 or distancePercent <= maxPercentDistance)
+distancePass = not enableDistanceFilter or distanceRawPass
+
+slopeLongRawPass = vwapSlopeTicks >= minSlopeTicks
+slopeShortRawPass = vwapSlopeTicks <= -minSlopeTicks
+slopeLongPass = not enableVwapSlopeFilter or slopeLongRawPass
+slopeShortPass = not enableVwapSlopeFilter or slopeShortRawPass
+
+sessionActive = not na(time(timeframe.period, tradeSession, sessionTimezone))
+sessionPass = not enableSessionFilter or sessionActive
+sessionEnded = enableSessionFilter and forceExitAtSessionEnd and not sessionActive and sessionActive[1]
+
+// -----------------------------------------------------------------------------
+// Pullback and rejection logic
+// -----------------------------------------------------------------------------
+candleRange = math.max(high - low, syminfo.mintick)
+bodySize = math.abs(close - open)
+bodyPct = bodySize / candleRange * 100.0
+lowerWickPct = (math.min(open, close) - low) / candleRange * 100.0
+upperWickPct = (high - math.max(open, close)) / candleRange * 100.0
+closeLocation = (close - low) / candleRange * 100.0
+
+longPullbackTouched = low <= upperBand
+shortPullbackTouched = high >= lowerBand
+closeBackAbove = close > sessionVwap
+closeBackBelow = close < sessionVwap
+strictBullRejection = longPullbackTouched and closeBackAbove and close > open and lowerWickPct >= minWickPct and bodyPct >= minBodyPct and closeLocation >= closeLocationPct
+strictBearRejection = shortPullbackTouched and closeBackBelow and close < open and upperWickPct >= minWickPct and bodyPct >= minBodyPct and closeLocation <= 100.0 - closeLocationPct
+relaxedBullRejection = longPullbackTouched and closeBackAbove and (close > open or closeLocation >= closeLocationPct) and lowerWickPct >= minWickPct * 0.70 and bodyPct >= minBodyPct * 0.70
+relaxedBearRejection = shortPullbackTouched and closeBackBelow and (close < open or closeLocation <= 100.0 - closeLocationPct) and upperWickPct >= minWickPct * 0.70 and bodyPct >= minBodyPct * 0.70
+bullRejection = rejectionMode == "Strict" ? strictBullRejection : relaxedBullRejection
+bearRejection = rejectionMode == "Strict" ? strictBearRejection : relaxedBearRejection
+candleStrengthPass = not enableCandleStrengthFilter or (bodyPct >= minBodyPct and (lowerWickPct >= minWickPct or upperWickPct >= minWickPct))
+
+vwapBullBias = close > sessionVwap and vwapSlopeTicks > 0
+vwapBearBias = close < sessionVwap and vwapSlopeTicks < 0
+
+longQualityScore = (close > sessionVwap ? 1 : 0) + (vwapBullBias ? 1 : 0) + (longPullbackTouched ? 1 : 0) + (bullRejection ? 2 : 0) + (lowerWickPct >= minWickPct * 1.5 ? 1 : 0) + (volumeRawPass ? 1 : 0) + (emaLongRaw ? 1 : 0) + (supertrendBull ? 1 : 0) + (htfLongRaw ? 1 : 0) + (slopeLongRawPass ? 1 : 0) + (chopRawPass ? 1 : 0) + (distanceRawPass ? 1 : 0) + (sessionActive ? 1 : 0)
+shortQualityScore = (close < sessionVwap ? 1 : 0) + (vwapBearBias ? 1 : 0) + (shortPullbackTouched ? 1 : 0) + (bearRejection ? 2 : 0) + (upperWickPct >= minWickPct * 1.5 ? 1 : 0) + (volumeRawPass ? 1 : 0) + (emaShortRaw ? 1 : 0) + (supertrendBear ? 1 : 0) + (htfShortRaw ? 1 : 0) + (slopeShortRawPass ? 1 : 0) + (chopRawPass ? 1 : 0) + (distanceRawPass ? 1 : 0) + (sessionActive ? 1 : 0)
+longGrade = f_grade(longQualityScore)
+shortGrade = f_grade(shortQualityScore)
+
+// -----------------------------------------------------------------------------
+// Signal limiting and confirmed entries
+// -----------------------------------------------------------------------------
+var int longSignalsThisSession = 0
+var int shortSignalsThisSession = 0
+var int totalSignalsThisSession = 0
+
+resetSignalCounters = newDay or (sessionActive and not sessionActive[1])
+if resetSignalCounters
+    longSignalsThisSession := 0
+    shortSignalsThisSession := 0
+    totalSignalsThisSession := 0
+
+longLimitPass = not enableMaxSignals or (longSignalsThisSession < maxLongSignals and totalSignalsThisSession < maxTotalSignals)
+shortLimitPass = not enableMaxSignals or (shortSignalsThisSession < maxShortSignals and totalSignalsThisSession < maxTotalSignals)
+
+baseLongSignal = enableLongs and close > sessionVwap and vwapBullBias and bullRejection and emaLongPass and supertrendLongPass and htfLongPass and volumePass and chopPass and slopeLongPass and distancePass and candleStrengthPass and sessionPass
+baseShortSignal = enableShorts and close < sessionVwap and vwapBearBias and bearRejection and emaShortPass and supertrendShortPass and htfShortPass and volumePass and chopPass and slopeShortPass and distancePass and candleStrengthPass and sessionPass
+
+longSignal = barstate.isconfirmed and baseLongSignal and longLimitPass and f_gradeAllowed(longGrade, minTradeGrade)
+shortSignal = barstate.isconfirmed and baseShortSignal and shortLimitPass and f_gradeAllowed(shortGrade, minTradeGrade)
+
+if longSignal
+    longSignalsThisSession += 1
+    totalSignalsThisSession += 1
+if shortSignal
+    shortSignalsThisSession += 1
+    totalSignalsThisSession += 1
+
+// -----------------------------------------------------------------------------
+// Strategy orders
+// -----------------------------------------------------------------------------
+stopBuffer = stopBufferTicks * syminfo.mintick + atr * atrStopBufferMult
+longEntry = close
+shortEntry = close
+longStop = low - stopBuffer
+shortStop = high + stopBuffer
+longRisk = math.max(longEntry - longStop, syminfo.mintick)
+shortRisk = math.max(shortStop - shortEntry, syminfo.mintick)
+longTarget = longEntry + longRisk * riskReward
+shortTarget = shortEntry - shortRisk * riskReward
+
+var float activeStop = na
+var float activeTarget = na
+var float activeEntry = na
+var string activeGrade = ""
+
+longStopTouched = strategy.position_size > 0 and not na(activeStop) and low <= activeStop
+longTargetTouched = strategy.position_size > 0 and not na(activeTarget) and high >= activeTarget
+shortStopTouched = strategy.position_size < 0 and not na(activeStop) and high >= activeStop
+shortTargetTouched = strategy.position_size < 0 and not na(activeTarget) and low <= activeTarget
+oppositeSignalExit = exitOnOppositeSignal and ((strategy.position_size > 0 and shortSignal) or (strategy.position_size < 0 and longSignal))
+
+if oppositeSignalExit and strategy.position_size > 0
+    strategy.close("Long", comment="Opposite signal")
+if oppositeSignalExit and strategy.position_size < 0
+    strategy.close("Short", comment="Opposite signal")
+if sessionEnded and strategy.position_size != 0
+    strategy.close_all(comment="Session exit")
+
+canEnterLong = longSignal and strategy.position_size == 0
+canEnterShort = shortSignal and strategy.position_size == 0
+
+if canEnterLong
+    activeStop := longStop
+    activeTarget := longTarget
+    activeEntry := longEntry
+    activeGrade := longGrade
+    strategy.entry("Long", strategy.long, comment="VWAP pullback " + longGrade)
+    strategy.exit("Long Exit", "Long", stop=activeStop, limit=activeTarget)
+if canEnterShort
+    activeStop := shortStop
+    activeTarget := shortTarget
+    activeEntry := shortEntry
+    activeGrade := shortGrade
+    strategy.entry("Short", strategy.short, comment="VWAP pullback " + shortGrade)
+    strategy.exit("Short Exit", "Short", stop=activeStop, limit=activeTarget)
+
+if strategy.position_size > 0 and not na(activeStop) and not na(activeTarget)
+    strategy.exit("Long Exit", "Long", stop=activeStop, limit=activeTarget)
+if strategy.position_size < 0 and not na(activeStop) and not na(activeTarget)
+    strategy.exit("Short Exit", "Short", stop=activeStop, limit=activeTarget)
+
+longClosed = strategy.position_size[1] > 0 and strategy.position_size <= 0
+shortClosed = strategy.position_size[1] < 0 and strategy.position_size >= 0
+if strategy.position_size == 0 and not canEnterLong and not canEnterShort
+    activeStop := na
+    activeTarget := na
+    activeEntry := na
+    activeGrade := ""
+
+// -----------------------------------------------------------------------------
+// Plots and labels
+// -----------------------------------------------------------------------------
+vwapPlot = plot(showVwap ? sessionVwap : na, "Session VWAP", color=color.new(color.yellow, 0), linewidth=2)
+upperPlot = plot(showBands ? upperBand : na, "VWAP upper band", color=color.new(color.aqua, 20))
+lowerPlot = plot(showBands ? lowerBand : na, "VWAP lower band", color=color.new(color.aqua, 20))
+fill(upperPlot, lowerPlot, color=showBands ? color.new(color.aqua, 92) : na, title="VWAP band fill")
+
+plot(showEma ? emaFast : na, "Fast EMA", color=color.new(color.teal, 0))
+plot(showEma ? emaSlow : na, "Slow EMA", color=color.new(color.orange, 0))
+plot(showSupertrend ? supertrendLine : na, "Supertrend", color=supertrendBull ? color.new(color.lime, 0) : color.new(color.red, 0), style=plot.style_linebr)
+
+visualLong = longSignal and (not hideCGradeSignals or longGrade != "C")
+visualShort = shortSignal and (not hideCGradeSignals or shortGrade != "C")
+plotshape(visualLong, "Long signal", shape.triangleup, location.belowbar, color=color.new(color.lime, 0), size=size.small, text="L")
+plotshape(visualShort, "Short signal", shape.triangledown, location.abovebar, color=color.new(color.red, 0), size=size.small, text="S")
+
+if showEntryLabels and visualLong
+    label.new(bar_index, low, "Long " + longGrade + "\n" + f_filterText(true, emaLongPass, supertrendLongPass, htfLongPass, volumePass, chopPass, slopeLongPass, distancePass, sessionPass), style=label.style_label_up, color=color.new(color.lime, 0), textcolor=color.black, size=size.small)
+if showEntryLabels and visualShort
+    label.new(bar_index, high, "Short " + shortGrade + "\n" + f_filterText(false, emaShortPass, supertrendShortPass, htfShortPass, volumePass, chopPass, slopeShortPass, distancePass, sessionPass), style=label.style_label_down, color=color.new(color.red, 0), textcolor=color.white, size=size.small)
+
+plot(showTradeLevels and strategy.position_size != 0 ? activeStop : na, "Active stop", color=color.new(color.red, 0), style=plot.style_linebr, linewidth=2)
+plot(showTradeLevels and strategy.position_size != 0 ? activeTarget : na, "Active target", color=color.new(color.lime, 0), style=plot.style_linebr, linewidth=2)
+
+bgcolor(showBiasBackground ? vwapBullBias ? color.new(color.green, 92) : vwapBearBias ? color.new(color.red, 92) : color.new(color.gray, 95) : na)
+
+// -----------------------------------------------------------------------------
+// Dashboard
+// -----------------------------------------------------------------------------
+var table dash = table.new(f_tablePosition(dashboardPosition), 2, 11, border_width=1)
+if showDashboard and barstate.islast
+    currentGrade = longSignal ? longGrade : shortSignal ? shortGrade : "None"
+    activeText = strategy.position_size > 0 ? "Long " + activeGrade : strategy.position_size < 0 ? "Short " + activeGrade : "Flat"
+    table.cell(dash, 0, 0, "VWAP bias", bgcolor=color.new(color.gray, 85), text_color=color.white)
+    table.cell(dash, 1, 0, vwapBullBias ? "Bullish" : vwapBearBias ? "Bearish" : "Flat", text_color=vwapBullBias ? color.lime : vwapBearBias ? color.red : color.silver)
+    table.cell(dash, 0, 1, "EMA", bgcolor=color.new(color.gray, 85), text_color=color.white)
+    table.cell(dash, 1, 1, enableEmaFilter ? (emaLongRaw ? "Bull" : emaShortRaw ? "Bear" : "Mixed") : "Off")
+    table.cell(dash, 0, 2, "Supertrend", bgcolor=color.new(color.gray, 85), text_color=color.white)
+    table.cell(dash, 1, 2, enableSupertrend ? (supertrendBull ? "Bull" : "Bear") : "Off")
+    table.cell(dash, 0, 3, "HTF", bgcolor=color.new(color.gray, 85), text_color=color.white)
+    table.cell(dash, 1, 3, enableHtfFilter ? (htfLongRaw ? "Bull" : htfShortRaw ? "Bear" : "Mixed") : "Off")
+    table.cell(dash, 0, 4, "Volume", bgcolor=color.new(color.gray, 85), text_color=color.white)
+    table.cell(dash, 1, 4, enableVolumeFilter ? f_passFail(volumeRawPass) : "Off")
+    table.cell(dash, 0, 5, "Chop", bgcolor=color.new(color.gray, 85), text_color=color.white)
+    table.cell(dash, 1, 5, enableChopFilter ? f_passFail(chopRawPass) : "Off")
+    table.cell(dash, 0, 6, "Session", bgcolor=color.new(color.gray, 85), text_color=color.white)
+    table.cell(dash, 1, 6, sessionPass ? "Open" : "Closed")
+    table.cell(dash, 0, 7, "Signal grade", bgcolor=color.new(color.gray, 85), text_color=color.white)
+    table.cell(dash, 1, 7, currentGrade)
+    table.cell(dash, 0, 8, "Strategy trade", bgcolor=color.new(color.gray, 85), text_color=color.white)
+    table.cell(dash, 1, 8, activeText)
+    table.cell(dash, 0, 9, "Stop", bgcolor=color.new(color.gray, 85), text_color=color.white)
+    table.cell(dash, 1, 9, na(activeStop) ? "-" : str.tostring(activeStop, format.mintick))
+    table.cell(dash, 0, 10, "Target", bgcolor=color.new(color.gray, 85), text_color=color.white)
+    table.cell(dash, 1, 10, na(activeTarget) ? "-" : str.tostring(activeTarget, format.mintick))
+
+// -----------------------------------------------------------------------------
+// Alerts
+// -----------------------------------------------------------------------------
+anySignal = longSignal or shortSignal
+aPlusSignal = (longSignal and longGrade == "A+") or (shortSignal and shortGrade == "A+")
+aOrBetterSignal = (longSignal and f_rank(longGrade) >= f_rank("A")) or (shortSignal and f_rank(shortGrade) >= f_rank("A"))
+
+alertcondition(longSignal, "Long entry", "Confirmed VWAP pullback long entry on {{ticker}} {{interval}}.")
+alertcondition(shortSignal, "Short entry", "Confirmed VWAP pullback short entry on {{ticker}} {{interval}}.")
+alertcondition(longClosed, "Long exit", "Strategy long exit on {{ticker}} {{interval}}.")
+alertcondition(shortClosed, "Short exit", "Strategy short exit on {{ticker}} {{interval}}.")
+alertcondition(longStopTouched or shortStopTouched, "Stop loss hit", "Strategy stop loss touched on {{ticker}} {{interval}}.")
+alertcondition(longTargetTouched or shortTargetTouched, "Take profit hit", "Strategy take profit touched on {{ticker}} {{interval}}.")
+alertcondition(oppositeSignalExit, "Opposite signal", "Opposite VWAP pullback signal on {{ticker}} {{interval}}.")
+alertcondition(aPlusSignal, "A+ signal", "A+ confirmed VWAP pullback signal on {{ticker}} {{interval}}.")
+alertcondition(aOrBetterSignal, "A or better signal", "A or better confirmed VWAP pullback signal on {{ticker}} {{interval}}.")
+alertcondition(anySignal, "Any valid signal", "Any confirmed VWAP pullback signal on {{ticker}} {{interval}}.")
+
+if enableDynamicAlerts and canEnterLong
+    alert(f_entryMessage("LONG", longGrade, longEntry, longStop, longTarget, riskReward, f_filterText(true, emaLongPass, supertrendLongPass, htfLongPass, volumePass, chopPass, slopeLongPass, distancePass, sessionPass)), alert.freq_once_per_bar_close)
+if enableDynamicAlerts and canEnterShort
+    alert(f_entryMessage("SHORT", shortGrade, shortEntry, shortStop, shortTarget, riskReward, f_filterText(false, emaShortPass, supertrendShortPass, htfShortPass, volumePass, chopPass, slopeShortPass, distancePass, sessionPass)), alert.freq_once_per_bar_close)
+if enableDynamicAlerts and longClosed
+    alert(syminfo.ticker + " " + timeframe.period + " LONG exit", alert.freq_once_per_bar_close)
+if enableDynamicAlerts and shortClosed
+    alert(syminfo.ticker + " " + timeframe.period + " SHORT exit", alert.freq_once_per_bar_close)

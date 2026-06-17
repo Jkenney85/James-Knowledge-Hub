@@ -1,0 +1,209 @@
+{
+  "main": {
+    "id": "a6d82b6c727ef431",
+    "type": "split",
+    "children": [
+      {
+        "id": "6b759e6638e8258c",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "f133fba76f36028b",
+            "type": "leaf",
+            "state": {
+              "type": "markdown",
+              "state": {
+                "file": "11 Trading/Codex/vwap_pullback_notes.md",
+                "mode": "source",
+                "source": false
+              },
+              "icon": "lucide-file",
+              "title": "vwap_pullback_notes"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "vertical"
+  },
+  "left": {
+    "id": "3705afa2c96f3050",
+    "type": "split",
+    "children": [
+      {
+        "id": "b41cfed16313d011",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "5b61feb5fc59ebe4",
+            "type": "leaf",
+            "state": {
+              "type": "file-explorer",
+              "state": {
+                "sortOrder": "alphabetical",
+                "autoReveal": false
+              },
+              "icon": "lucide-folder-closed",
+              "title": "Files"
+            }
+          },
+          {
+            "id": "fc34f571c6c66b4b",
+            "type": "leaf",
+            "state": {
+              "type": "search",
+              "state": {
+                "query": "",
+                "matchingCase": false,
+                "explainSearch": false,
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical"
+              },
+              "icon": "lucide-search",
+              "title": "Search"
+            }
+          },
+          {
+            "id": "d840fc5e46e63684",
+            "type": "leaf",
+            "state": {
+              "type": "bookmarks",
+              "state": {},
+              "icon": "lucide-bookmark",
+              "title": "Bookmarks"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300
+  },
+  "right": {
+    "id": "001247cb3f15f3dc",
+    "type": "split",
+    "children": [
+      {
+        "id": "aff5cd40986e47db",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "d704631ebd3c38ff",
+            "type": "leaf",
+            "state": {
+              "type": "backlink",
+              "state": {
+                "file": "11 Trading/Codex/vwap_pullback_notes.md",
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical",
+                "showSearch": false,
+                "searchQuery": "",
+                "backlinkCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-coming-in",
+              "title": "Backlinks for vwap_pullback_notes"
+            }
+          },
+          {
+            "id": "9720a36452b2a40a",
+            "type": "leaf",
+            "state": {
+              "type": "outgoing-link",
+              "state": {
+                "file": "11 Trading/Codex/vwap_pullback_notes.md",
+                "linksCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-going-out",
+              "title": "Outgoing links from vwap_pullback_notes"
+            }
+          },
+          {
+            "id": "d70a1d0707e4ac4d",
+            "type": "leaf",
+            "state": {
+              "type": "tag",
+              "state": {
+                "sortOrder": "frequency",
+                "useHierarchy": true,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-tags",
+              "title": "Tags"
+            }
+          },
+          {
+            "id": "7ebe3837a1389787",
+            "type": "leaf",
+            "state": {
+              "type": "all-properties",
+              "state": {
+                "sortOrder": "frequency",
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-archive",
+              "title": "All properties"
+            }
+          },
+          {
+            "id": "6419a834c5f75cbe",
+            "type": "leaf",
+            "state": {
+              "type": "outline",
+              "state": {
+                "file": "11 Trading/Codex/vwap_pullback_notes.md",
+                "followCursor": false,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-list",
+              "title": "Outline of vwap_pullback_notes"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300,
+    "collapsed": true
+  },
+  "left-ribbon": {
+    "hiddenItems": {
+      "switcher:Open quick switcher": false,
+      "graph:Open graph view": false,
+      "canvas:Create new canvas": false,
+      "daily-notes:Open today's daily note": false,
+      "templates:Insert template": false,
+      "command-palette:Open command palette": false,
+      "bases:Create new base": false
+    }
+  },
+  "active": "f133fba76f36028b",
+  "lastOpenFiles": [
+    "11 Trading/Claude/2026-06-17-vwap-pullback-guide.md",
+    "07 Cars/67 Mustang/T5 swap cost and parts breakdown.md",
+    "11 Trading/Codex/vwap_pullback_strategy.pine",
+    "11 Trading/Codex/vwap_pullback_notes.md",
+    "11 Trading/Codex/vwap_pullback_indicator.pine",
+    "11 Trading/Claude/2026-06-17-vwap-pullback-strategy.pine",
+    "11 Trading/Claude/2026-06-17-vwap-pullback-indicator.pine",
+    "11 Trading/Codex",
+    "11 Trading/Claude",
+    "12 Recipes",
+    "11 Trading",
+    "03 Business/Website Business/Ideas.md",
+    "07 Cars/67 Mustang",
+    "03 Business/Website Business/Sales Notes.md",
+    "03 Business/Website Business/Client OnBoarding.md",
+    "03 Business/Website Business/Pricing.md",
+    "03 Business/Website Business/Services.md",
+    "03 Business/Website Business/Website Business - overview.md",
+    "Welcome.md",
+    "03 Business/Website Business"
+  ]
+}

@@ -1,0 +1,454 @@
+//@version=6
+// =====================================================================================
+// VWAP PULLBACK PRO — STRATEGY / BACKTEST (Pine Script v6)
+// Mirrors "VWAP Pullback Pro — Indicator". Same signals, plus strategy.entry/exit.
+// Futures day-trading VWAP pullback system (ES/MES, NQ/MNQ, CL/MCL, GC/MGC).
+//
+// For analysis, education, and trade planning only. No profitability is promised
+// or implied. Backtests are hypothetical and do not guarantee future results.
+// =====================================================================================
+// NOTE: commission, slippage, and order size also appear in the strategy's
+// "Properties" tab. The values below are sensible futures defaults; adjust there
+// (or via the Qty input) per contract. (strategy() requires constant cost args.)
+strategy("VWAP Pullback Pro — Strategy", "VWAP Pullback ST", overlay = true,
+     max_labels_count = 500, max_lines_count = 500,
+     default_qty_type = strategy.fixed, default_qty_value = 1,
+     pyramiding = 0, calc_on_every_tick = false,
+     initial_capital = 50000, currency = currency.USD,
+     commission_type = strategy.commission.cash_per_order, commission_value = 2.5,
+     slippage = 2)
+
+// =====================================================================================
+// 0) CONTRACT PRESETS
+// =====================================================================================
+g_pre = "0) Contract Preset"
+presetName     = input.string("ES/MES", "Contract Preset", options = ["ES/MES", "NQ/MNQ", "CL/MCL", "GC/MGC", "Manual"], group = g_pre)
+manualOverride = input.bool(false, "Use Manual Overrides (ignore preset)", group = g_pre)
+
+f_preset(string p) =>
+    float band  = 2.0
+    float rr    = 1.5
+    int   sbuf  = 4
+    float abuf  = 0.5
+    float vmult = 1.10
+    float adxm  = 18.0
+    float slpm  = 0.30
+    float maxd  = 2.0
+    float mbody = 0.40
+    float mwick = 0.30
+    int   statr = 10
+    float stfac = 3.0
+    if p == "NQ/MNQ"
+        band  := 2.0
+        rr    := 1.5
+        sbuf  := 8
+        abuf  := 0.75
+        vmult := 1.10
+        adxm  := 22.0
+        slpm  := 0.40
+        maxd  := 1.5
+        mbody := 0.40
+        mwick := 0.30
+        statr := 10
+        stfac := 3.5
+    if p == "CL/MCL"
+        band  := 2.0
+        rr    := 1.5
+        sbuf  := 6
+        abuf  := 1.0
+        vmult := 1.15
+        adxm  := 20.0
+        slpm  := 0.40
+        maxd  := 2.5
+        mbody := 0.50
+        mwick := 0.40
+        statr := 14
+        stfac := 3.0
+    if p == "GC/MGC"
+        band  := 2.0
+        rr    := 1.5
+        sbuf  := 5
+        abuf  := 0.75
+        vmult := 1.05
+        adxm  := 15.0
+        slpm  := 0.30
+        maxd  := 2.5
+        mbody := 0.35
+        mwick := 0.30
+        statr := 10
+        stfac := 3.0
+    [band, rr, sbuf, abuf, vmult, adxm, slpm, maxd, mbody, mwick, statr, stfac]
+
+[pBand, pRR, pSbuf, pAbuf, pVmult, pAdxm, pSlpm, pMaxd, pMbody, pMwick, pStatr, pStfac] = f_preset(presetName)
+usePreset = not manualOverride and presetName != "Manual"
+
+// =====================================================================================
+// 1) VWAP & BANDS
+// =====================================================================================
+g_vwap = "1) VWAP & Bands"
+showVWAP      = input.bool(true, "Show VWAP", group = g_vwap)
+showBands     = input.bool(true, "Show VWAP Bands", group = g_vwap)
+anchorSession = input.bool(true, "Anchor VWAP to Session (else full day)", group = g_vwap)
+inBandMult    = input.float(2.0, "VWAP Band Multiplier (stdev)", minval = 0.1, step = 0.1, group = g_vwap)
+useSlope      = input.bool(true, "Use VWAP Slope Filter", group = g_vwap)
+slopeLb       = input.int(10,    "VWAP Slope Lookback (bars)", minval = 1, group = g_vwap)
+inSlopeMin    = input.float(0.30,"Min VWAP Slope (ticks/bar)", minval = 0.0, step = 0.05, group = g_vwap)
+useDist       = input.bool(true, "Use Distance-from-VWAP Filter (ATR)", group = g_vwap)
+inMaxAtrDist  = input.float(2.0, "Max Distance from VWAP (xATR)", minval = 0.1, step = 0.1, group = g_vwap)
+useDistTick   = input.bool(false,"Also Limit Distance in Ticks", group = g_vwap)
+maxDistTicks  = input.float(40,  "Max Distance from VWAP (ticks)", minval = 1, group = g_vwap)
+
+effBand   = usePreset ? pBand : inBandMult
+effSlopeM = usePreset ? pSlpm : inSlopeMin
+effMaxd   = usePreset ? pMaxd : inMaxAtrDist
+
+newDay     = ta.change(time("D")) != 0
+sessForVw  = input.session("0930-1600", "VWAP Session (anchor)", group = g_vwap)
+tzForVw    = input.string("America/New_York", "VWAP Timezone", group = g_vwap)
+inSessNow  = not na(time(timeframe.period, sessForVw, tzForVw))
+sessStart  = inSessNow and not inSessNow[1]
+resetVWAP  = anchorSession ? sessStart : newDay
+
+var float cumPV  = na
+var float cumV   = na
+var float cumP2V = na
+src = hlc3
+if resetVWAP or na(cumV)
+    cumPV  := src * volume
+    cumV   := volume
+    cumP2V := src * src * volume
+else
+    cumPV  += src * volume
+    cumV   += volume
+    cumP2V += src * src * volume
+vwapVal   = cumV > 0 ? cumPV / cumV : na
+variance  = cumV > 0 ? math.max(cumP2V / cumV - vwapVal * vwapVal, 0.0) : na
+vwapStd   = na(variance) ? na : math.sqrt(variance)
+upperBand = vwapVal + effBand * vwapStd
+lowerBand = vwapVal - effBand * vwapStd
+
+vwapSlopeTicks = na(vwapVal[slopeLb]) ? na : (vwapVal - vwapVal[slopeLb]) / slopeLb / syminfo.mintick
+slopeBull = not useSlope or (not na(vwapSlopeTicks) and vwapSlopeTicks >=  effSlopeM)
+slopeBear = not useSlope or (not na(vwapSlopeTicks) and vwapSlopeTicks <= -effSlopeM)
+
+// =====================================================================================
+// 2) CORE INDICATORS
+// =====================================================================================
+g_ind = "2) Core Indicators"
+atrLen     = input.int(14, "ATR Length", minval = 1, group = g_ind)
+emaFastLen = input.int(50, "Fast EMA Length", minval = 1, group = g_ind)
+emaSlowLen = input.int(200,"Slow EMA Length", minval = 1, group = g_ind)
+inStAtr    = input.int(10, "Supertrend ATR Length", minval = 1, group = g_ind)
+inStFac    = input.float(3.0, "Supertrend Factor", minval = 0.1, step = 0.1, group = g_ind)
+adxLen     = input.int(14, "ADX/DMI Length", minval = 1, group = g_ind)
+adxSmooth  = input.int(14, "ADX Smoothing", minval = 1, group = g_ind)
+volLen     = input.int(20, "Volume MA Length", minval = 1, group = g_ind)
+
+// ta.supertrend's atrPeriod requires a *simple int*, so derive it directly from the
+// (simple) preset/manual inputs rather than via the f_preset tuple (which is series int).
+effStAtr = (manualOverride or presetName == "Manual") ? inStAtr : (presetName == "CL/MCL" ? 14 : 10)
+effStFac = usePreset ? pStfac : inStFac
+
+atrVal  = ta.atr(atrLen)
+emaFast = ta.ema(close, emaFastLen)
+emaSlow = ta.ema(close, emaSlowLen)
+[stLine, stDir] = ta.supertrend(effStFac, effStAtr)
+[diPlus, diMinus, adxVal] = ta.dmi(adxLen, adxSmooth)
+volMA   = ta.sma(volume, volLen)
+
+// =====================================================================================
+// 3) TREND / VOLUME FILTERS (Off / Grade / Require)
+// =====================================================================================
+g_flt = "3) Trend & Volume Filters"
+emaMode   = input.string("Grade", "EMA Filter Mode", options = ["Off", "Grade", "Require"], group = g_flt)
+emaCond   = input.string("Price > Slow EMA", "EMA Condition", options = ["Price > Slow EMA", "Fast > Slow EMA", "Both"], group = g_flt)
+stMode    = input.string("Grade", "Supertrend Filter Mode", options = ["Off", "Grade", "Require"], group = g_flt)
+htfMode   = input.string("Grade", "Higher-Timeframe Filter Mode", options = ["Off", "Grade", "Require"], group = g_flt)
+htfTf     = input.timeframe("15", "Higher Timeframe", group = g_flt)
+htfEmaLen = input.int(50, "HTF EMA Length", minval = 1, group = g_flt)
+volMode   = input.string("Grade", "Volume Filter Mode", options = ["Off", "Grade", "Require"], group = g_flt)
+inVolMult = input.float(1.1, "Volume Multiplier", minval = 0.1, step = 0.05, group = g_flt)
+effVmult  = usePreset ? pVmult : inVolMult
+
+emaBull = emaCond == "Price > Slow EMA" ? close > emaSlow : emaCond == "Fast > Slow EMA" ? emaFast > emaSlow : (close > emaSlow and emaFast > emaSlow)
+emaBear = emaCond == "Price > Slow EMA" ? close < emaSlow : emaCond == "Fast > Slow EMA" ? emaFast < emaSlow : (close < emaSlow and emaFast < emaSlow)
+stBull = stDir < 0
+stBear = stDir > 0
+htfClose = request.security(syminfo.tickerid, htfTf, close[1],                  lookahead = barmerge.lookahead_on)
+htfEma   = request.security(syminfo.tickerid, htfTf, ta.ema(close, htfEmaLen)[1], lookahead = barmerge.lookahead_on)
+htfBull  = not na(htfClose) and not na(htfEma) and htfClose > htfEma
+htfBear  = not na(htfClose) and not na(htfEma) and htfClose < htfEma
+volOK    = not na(volMA) and volume > volMA * effVmult
+
+f_soft(string mode, bool aligned) =>
+    int gradeAdd = mode == "Off" ? 0 : 1
+    int alignAdd = mode == "Off" ? 0 : (aligned ? 1 : 0)
+    bool reqFail = mode == "Require" and not aligned
+    [gradeAdd, alignAdd, reqFail]
+
+// =====================================================================================
+// 4) CHOP FILTER
+// =====================================================================================
+g_chop = "4) Chop Filter"
+useChop    = input.bool(true,  "Enable Chop Filter", group = g_chop)
+inAdxMin   = input.float(18.0, "Min ADX", minval = 0, step = 0.5, group = g_chop)
+useAtrComp = input.bool(true,  "Also Require No ATR Compression", group = g_chop)
+atrCompLb  = input.int(50,     "ATR Compression Lookback", minval = 1, group = g_chop)
+atrCompThr = input.float(0.9,  "Min ATR / ATR-avg Ratio", minval = 0.1, step = 0.05, group = g_chop)
+effAdxMin  = usePreset ? pAdxm : inAdxMin
+
+atrSma        = ta.sma(atrVal, atrCompLb)
+atrRatio      = na(atrSma) or atrSma == 0 ? 1.0 : atrVal / atrSma
+notCompressed = atrRatio >= atrCompThr
+chopOK        = not useChop or (adxVal >= effAdxMin and (not useAtrComp or notCompressed))
+
+// =====================================================================================
+// 5) REJECTION CANDLE
+// =====================================================================================
+g_rej = "5) Rejection Candle"
+rejMode      = input.string("Strict", "Rejection Mode", options = ["Strict", "Relaxed"], group = g_rej)
+useCandle    = input.bool(true,  "Require Candle-Strength Structure", group = g_rej)
+inMinBody    = input.float(0.40, "Min Body % of Range", minval = 0.0, maxval = 1.0, step = 0.05, group = g_rej)
+inMinWick    = input.float(0.30, "Min Rejection Wick % of Range", minval = 0.0, maxval = 1.0, step = 0.05, group = g_rej)
+closeThresh  = input.float(0.60, "Close Location Threshold (0-1)", minval = 0.0, maxval = 1.0, step = 0.05, group = g_rej)
+pullbackUseBand = input.bool(false, "Pullback Must Reach Band (else VWAP)", group = g_rej)
+
+effMbody0 = usePreset ? pMbody : inMinBody
+effMwick0 = usePreset ? pMwick : inMinWick
+relax     = rejMode == "Relaxed" ? 0.70 : 1.0
+effMbody  = effMbody0 * relax
+effMwick  = effMwick0 * relax
+effClose  = closeThresh * relax
+
+rng       = high - low
+body      = math.abs(close - open)
+bodyPct   = rng > 0 ? body / rng : 0.0
+upWick    = high - math.max(close, open)
+loWick    = math.min(close, open) - low
+upWickPct = rng > 0 ? upWick / rng : 0.0
+loWickPct = rng > 0 ? loWick / rng : 0.0
+closeLoc  = rng > 0 ? (close - low) / rng : 0.5
+
+pullLongTouch  = low  <= (pullbackUseBand ? lowerBand : vwapVal)
+pullShortTouch = high >= (pullbackUseBand ? upperBand : vwapVal)
+candleLongOK   = not useCandle or (bodyPct >= effMbody and loWickPct >= effMwick and closeLoc >= effClose)
+candleShortOK  = not useCandle or (bodyPct >= effMbody and upWickPct >= effMwick and (1.0 - closeLoc) >= effClose)
+rejLong  = close > open and close > vwapVal and pullLongTouch  and candleLongOK
+rejShort = close < open and close < vwapVal and pullShortTouch and candleShortOK
+strongCandle = bodyPct >= math.min(effMbody * 1.5, 0.9)
+
+// =====================================================================================
+// 6) SESSION & DISTANCE GATES
+// =====================================================================================
+g_sess = "6) Session Filter"
+useSession   = input.bool(true,  "Enable Session Filter", group = g_sess)
+sessRaw      = input.session("0930-1600", "Trading Session", group = g_sess)
+sessTz       = input.string("America/New_York", "Session Timezone", group = g_sess)
+forceFlatEnd = input.bool(true,  "Force Flat at Session End", group = g_sess)
+
+inSession   = not na(time(timeframe.period, sessRaw, sessTz))
+sessionOK   = not useSession or inSession
+sessionExit = useSession and forceFlatEnd and (not inSession and inSession[1])
+
+distAtrOK  = not useDist     or na(vwapVal) or math.abs(close - vwapVal) <= effMaxd * atrVal
+distTickOK = not useDistTick or na(vwapVal) or (math.abs(close - vwapVal) / syminfo.mintick) <= maxDistTicks
+distOK     = distAtrOK and distTickOK
+
+// =====================================================================================
+// 7) BIAS, GRADING, SIGNALS
+// =====================================================================================
+g_grade = "7) Grading & Signals"
+longsEnabled  = input.bool(true,  "Enable Longs", group = g_grade)
+shortsEnabled = input.bool(true,  "Enable Shorts", group = g_grade)
+minGradeStr   = input.string("B", "Minimum Grade to Trade", options = ["A+", "A", "B", "C"], group = g_grade)
+
+biasLong  = not na(vwapVal) and close > vwapVal and slopeBull
+biasShort = not na(vwapVal) and close < vwapVal and slopeBear
+
+[gE_l, aE_l, rE_l] = f_soft(emaMode, emaBull)
+[gE_s, aE_s, rE_s] = f_soft(emaMode, emaBear)
+[gS_l, aS_l, rS_l] = f_soft(stMode,  stBull)
+[gS_s, aS_s, rS_s] = f_soft(stMode,  stBear)
+[gH_l, aH_l, rH_l] = f_soft(htfMode, htfBull)
+[gH_s, aH_s, rH_s] = f_soft(htfMode, htfBear)
+[gV_l, aV_l, rV_l] = f_soft(volMode, volOK)
+[gV_s, aV_s, rV_s] = f_soft(volMode, volOK)
+
+gradedLong  = gE_l + gS_l + gH_l + gV_l
+alignedLong = aE_l + aS_l + aH_l + aV_l
+reqFailLong = rE_l or rS_l or rH_l or rV_l
+gradedShort  = gE_s + gS_s + gH_s + gV_s
+alignedShort = aE_s + aS_s + aH_s + aV_s
+reqFailShort = rE_s or rS_s or rH_s or rV_s
+
+f_grade(int graded, int aligned, bool strong) =>
+    int   score = aligned + (strong ? 1 : 0)
+    int   maxS  = graded + 1
+    float ratio = maxS > 0 ? score / maxS : 0.0
+    string g = "C"
+    if graded == 0
+        g := strong ? "A" : "B"
+    else if ratio >= 1.0
+        g := graded >= 3 ? "A+" : "A"
+    else if ratio >= 0.75
+        g := "A"
+    else if ratio >= 0.5
+        g := "B"
+    else
+        g := "C"
+    g
+
+gradeLong  = f_grade(gradedLong,  alignedLong,  strongCandle)
+gradeShort = f_grade(gradedShort, alignedShort, strongCandle)
+f_rank(string g) => g == "A+" ? 4 : g == "A" ? 3 : g == "B" ? 2 : 1
+minRank = f_rank(minGradeStr)
+
+g_max = "7b) Max Signals / Session"
+useMaxSig = input.bool(true, "Enable Max Signals per Session", group = g_max)
+maxLong   = input.int(3, "Max Long Signals",  minval = 0, group = g_max)
+maxShort  = input.int(3, "Max Short Signals", minval = 0, group = g_max)
+maxTotal  = input.int(5, "Max Total Signals", minval = 0, group = g_max)
+
+var int longCount  = 0
+var int shortCount = 0
+if resetVWAP
+    longCount  := 0
+    shortCount := 0
+longAllowed  = not useMaxSig or (longCount  < maxLong  and (longCount + shortCount) < maxTotal)
+shortAllowed = not useMaxSig or (shortCount < maxShort and (longCount + shortCount) < maxTotal)
+
+longSetup  = biasLong  and rejLong  and distOK and chopOK and sessionOK and not reqFailLong  and longsEnabled
+shortSetup = biasShort and rejShort and distOK and chopOK and sessionOK and not reqFailShort and shortsEnabled
+gradeOkLong  = f_rank(gradeLong)  >= minRank
+gradeOkShort = f_rank(gradeShort) >= minRank
+
+longSignal  = longSetup  and gradeOkLong  and longAllowed  and barstate.isconfirmed
+shortSignal = shortSetup and gradeOkShort and shortAllowed and barstate.isconfirmed
+if longSignal
+    longCount  += 1
+if shortSignal
+    shortCount += 1
+
+// =====================================================================================
+// 8) EXIT PARAMETERS
+// =====================================================================================
+g_exit = "8) Exits"
+inStopBuf   = input.int(4,   "Stop Buffer (ticks)", minval = 0, group = g_exit)
+useAtrBuf   = input.bool(true, "Add ATR Stop Buffer", group = g_exit)
+inAtrBufMul = input.float(0.5, "ATR Stop Buffer (xATR)", minval = 0.0, step = 0.1, group = g_exit)
+inRR        = input.float(1.5, "Risk/Reward (target = R x risk)", minval = 0.1, step = 0.1, group = g_exit)
+exitOpp     = input.bool(true, "Exit on Opposite Signal", group = g_exit)
+
+effSbuf = usePreset ? pSbuf : inStopBuf
+effAbuf = usePreset ? pAbuf : inAtrBufMul
+effRR   = usePreset ? pRR   : inRR
+
+f_round_tick(float p) => math.round(p / syminfo.mintick) * syminfo.mintick
+stopBuffer = effSbuf * syminfo.mintick + (useAtrBuf ? effAbuf * atrVal : 0.0)
+
+// =====================================================================================
+// 9) STRATEGY ORDERS
+// Entries fire on the *next bar open* after a confirmed signal (non-repainting).
+// Stop is based on the signal candle's extreme; target = RR x risk.
+// =====================================================================================
+var float curStop = na
+var float curTgt  = na
+
+// Only enter when flat, or when reversing and "Exit on Opposite Signal" is enabled.
+allowLong  = longSignal  and (strategy.position_size == 0 or (strategy.position_size < 0 and exitOpp))
+allowShort = shortSignal and (strategy.position_size == 0 or (strategy.position_size > 0 and exitOpp))
+
+if allowLong
+    lStop = f_round_tick(low - stopBuffer)
+    lRisk = math.max(close - lStop, syminfo.mintick)
+    curStop := lStop
+    curTgt  := f_round_tick(close + effRR * lRisk)
+    strategy.entry("Long", strategy.long)        // reverses an open short automatically
+
+if allowShort
+    sStop = f_round_tick(high + stopBuffer)
+    sRisk = math.max(sStop - close, syminfo.mintick)
+    curStop := sStop
+    curTgt  := f_round_tick(close - effRR * sRisk)
+    strategy.entry("Short", strategy.short)       // reverses an open long automatically
+
+// Bracket exits (stop + limit) attached to whichever position is open
+if strategy.position_size > 0
+    strategy.exit("L-exit", from_entry = "Long", stop = curStop, limit = curTgt)
+if strategy.position_size < 0
+    strategy.exit("S-exit", from_entry = "Short", stop = curStop, limit = curTgt)
+
+// Forced flat at session end
+if sessionExit
+    strategy.close_all(comment = "SessionFlat")
+
+// =====================================================================================
+// 10) PLOTTING
+// =====================================================================================
+g_vis = "10) Visuals"
+showArrows = input.bool(true, "Show Entry Arrows", group = g_vis)
+showBias   = input.bool(true, "Show Trend-Bias Background", group = g_vis)
+showDash   = input.bool(true, "Show Dashboard Table", group = g_vis)
+
+plot(showVWAP ? vwapVal : na, "VWAP", color = color.new(color.orange, 0), linewidth = 2)
+uB = plot(showBands ? upperBand : na, "VWAP Upper", color = color.new(color.teal, 40))
+lB = plot(showBands ? lowerBand : na, "VWAP Lower", color = color.new(color.teal, 40))
+fill(uB, lB, color = showBands ? color.new(color.teal, 92) : na, title = "VWAP Band Fill")
+bgcolor(showBias and biasLong  ? color.new(color.green, 92) : na, title = "Bull Bias BG")
+bgcolor(showBias and biasShort ? color.new(color.red,   92) : na, title = "Bear Bias BG")
+plotshape(showArrows and longSignal,  title = "Long",  style = shape.triangleup,   location = location.belowbar, color = color.new(color.green, 0), size = size.small, text = "L")
+plotshape(showArrows and shortSignal, title = "Short", style = shape.triangledown, location = location.abovebar, color = color.new(color.red,   0), size = size.small, text = "S")
+
+plot(strategy.position_size != 0 ? curStop : na, "Stop",   color = color.new(color.red,  0), style = plot.style_linebr)
+plot(strategy.position_size != 0 ? curTgt  : na, "Target", color = color.new(color.green,0), style = plot.style_linebr)
+
+// =====================================================================================
+// 11) DASHBOARD
+// =====================================================================================
+f_yn(bool b) => b ? "✔" : "✗"
+f_mode(string m, bool al) => m == "Off" ? "—" : (al ? "✔ " + m : "✗ " + m)
+
+var table dash = table.new(position.top_right, 2, 12, border_width = 1, frame_color = color.new(color.gray, 50), frame_width = 1)
+if showDash and barstate.islast
+    biasTxt = biasLong ? "BULL" : biasShort ? "BEAR" : "FLAT"
+    posTxt  = strategy.position_size > 0 ? "LONG" : strategy.position_size < 0 ? "SHORT" : "FLAT"
+    table.cell(dash, 0, 0,  "VWAP Pullback ST", text_color = color.white, bgcolor = color.new(color.blue, 0), text_size = size.small)
+    table.cell(dash, 1, 0,  syminfo.ticker + " " + timeframe.period, text_color = color.white, bgcolor = color.new(color.blue, 0), text_size = size.small)
+    table.cell(dash, 0, 1,  "VWAP Bias", text_size = size.small)
+    table.cell(dash, 1, 1,  biasTxt, text_color = biasLong ? color.green : biasShort ? color.red : color.gray, text_size = size.small)
+    table.cell(dash, 0, 2,  "EMA Filter", text_size = size.small)
+    table.cell(dash, 1, 2,  f_mode(emaMode, biasLong ? emaBull : emaBear), text_size = size.small)
+    table.cell(dash, 0, 3,  "Supertrend", text_size = size.small)
+    table.cell(dash, 1, 3,  f_mode(stMode, biasLong ? stBull : stBear), text_size = size.small)
+    table.cell(dash, 0, 4,  "HTF (" + htfTf + ")", text_size = size.small)
+    table.cell(dash, 1, 4,  f_mode(htfMode, biasLong ? htfBull : htfBear), text_size = size.small)
+    table.cell(dash, 0, 5,  "Volume", text_size = size.small)
+    table.cell(dash, 1, 5,  f_mode(volMode, volOK), text_size = size.small)
+    table.cell(dash, 0, 6,  "Chop OK (ADX " + str.tostring(adxVal, "#.#") + ")", text_size = size.small)
+    table.cell(dash, 1, 6,  f_yn(chopOK), text_color = chopOK ? color.green : color.red, text_size = size.small)
+    table.cell(dash, 0, 7,  "Distance OK", text_size = size.small)
+    table.cell(dash, 1, 7,  f_yn(distOK), text_color = distOK ? color.green : color.red, text_size = size.small)
+    table.cell(dash, 0, 8,  "In Session", text_size = size.small)
+    table.cell(dash, 1, 8,  f_yn(inSession), text_color = inSession ? color.green : color.red, text_size = size.small)
+    gNow = biasLong ? gradeLong : biasShort ? gradeShort : "—"
+    table.cell(dash, 0, 9,  "Current Grade", text_size = size.small)
+    table.cell(dash, 1, 9,  gNow, text_color = color.white, bgcolor = gNow == "A+" or gNow == "A" ? color.new(color.green, 0) : gNow == "B" ? color.new(color.orange, 0) : color.new(color.gray, 0), text_size = size.small)
+    table.cell(dash, 0, 10, "Position", text_size = size.small)
+    table.cell(dash, 1, 10, posTxt, text_color = strategy.position_size > 0 ? color.green : strategy.position_size < 0 ? color.red : color.gray, text_size = size.small)
+    table.cell(dash, 0, 11, "Stop / Target", text_size = size.small)
+    table.cell(dash, 1, 11, strategy.position_size == 0 ? "—" : str.tostring(curStop, format.mintick) + " / " + str.tostring(curTgt, format.mintick), text_size = size.small)
+
+// =====================================================================================
+// 12) ALERTS
+// =====================================================================================
+f_msgLong()  => syminfo.ticker + " " + timeframe.period + " LONG " + gradeLong + " | entry~" + str.tostring(close, format.mintick) + " | SL " + str.tostring(curStop, format.mintick) + " | TP " + str.tostring(curTgt, format.mintick) + " | " + str.tostring(effRR, "#.#") + "R"
+f_msgShort() => syminfo.ticker + " " + timeframe.period + " SHORT " + gradeShort + " | entry~" + str.tostring(close, format.mintick) + " | SL " + str.tostring(curStop, format.mintick) + " | TP " + str.tostring(curTgt, format.mintick) + " | " + str.tostring(effRR, "#.#") + "R"
+if longSignal
+    alert(f_msgLong(),  alert.freq_once_per_bar_close)
+if shortSignal
+    alert(f_msgShort(), alert.freq_once_per_bar_close)
+
+alertcondition(longSignal,  "Long Entry",  "VWAP Pullback LONG entry")
+alertcondition(shortSignal, "Short Entry", "VWAP Pullback SHORT entry")
+alertcondition(longSignal or shortSignal, "Any Valid Signal", "VWAP Pullback signal")
+alertcondition(longSignal and gradeLong == "A+" or shortSignal and gradeShort == "A+", "A+ Signal", "VWAP Pullback A+ signal")
