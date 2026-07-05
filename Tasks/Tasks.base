@@ -1,0 +1,124 @@
+filters:
+  and:
+    - file.ext == "md"
+    - file.inFolder("Tasks/Task Notes")
+    - type == "task"
+properties:
+  file.name:
+    displayName: Task
+  status:
+    displayName: Status
+  priority:
+    displayName: Priority
+  due:
+    displayName: Due
+  area:
+    displayName: Area
+  project:
+    displayName: Project
+  created:
+    displayName: Created
+  completed:
+    displayName: Completed
+views:
+  - type: table
+    name: Open tasks
+    filters:
+      and:
+        - status != "completed"
+        - status != "cancelled"
+    order:
+      - file.name
+      - status
+      - priority
+      - due
+      - area
+      - project
+  - type: table
+    name: Overdue
+    filters:
+      and:
+        - status != "completed"
+        - status != "cancelled"
+        - due != null
+        - due < today()
+    order:
+      - file.name
+      - due
+      - priority
+      - status
+      - project
+  - type: table
+    name: Due today
+    filters:
+      and:
+        - status != "completed"
+        - status != "cancelled"
+        - due == today()
+    order:
+      - file.name
+      - priority
+      - status
+      - project
+  - type: table
+    name: Upcoming
+    filters:
+      and:
+        - status != "completed"
+        - status != "cancelled"
+        - due > today()
+        - due <= today() + "14d"
+    order:
+      - file.name
+      - due
+      - priority
+      - status
+      - project
+  - type: table
+    name: High priority
+    filters:
+      and:
+        - status != "completed"
+        - status != "cancelled"
+        - or:
+            - priority == "urgent"
+            - priority == "high"
+    order:
+      - file.name
+      - priority
+      - due
+      - status
+      - project
+  - type: table
+    name: Unscheduled
+    filters:
+      and:
+        - status != "completed"
+        - status != "cancelled"
+        - due == null
+    order:
+      - file.name
+      - priority
+      - status
+      - area
+      - project
+  - type: table
+    name: Waiting
+    filters:
+      and:
+        - status == "waiting"
+    order:
+      - file.name
+      - due
+      - priority
+      - project
+  - type: table
+    name: Completed
+    filters:
+      and:
+        - status == "completed"
+    order:
+      - file.name
+      - completed
+      - area
+      - project

@@ -13,12 +13,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "11 Trading/Codex/vwap_pullback_notes.md",
+                "file": "03 Business/James Kenney Gaming/Games/Ocarina of Time/Series Plan.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "vwap_pullback_notes"
+              "title": "Series Plan"
             }
           }
         ]
@@ -94,7 +94,7 @@
             "state": {
               "type": "backlink",
               "state": {
-                "file": "11 Trading/Codex/vwap_pullback_notes.md",
+                "file": "03 Business/James Kenney Gaming/Games/Ocarina of Time/Series Plan.md",
                 "collapseAll": false,
                 "extraContext": false,
                 "sortOrder": "alphabetical",
@@ -104,7 +104,7 @@
                 "unlinkedCollapsed": true
               },
               "icon": "links-coming-in",
-              "title": "Backlinks for vwap_pullback_notes"
+              "title": "Backlinks for Series Plan"
             }
           },
           {
@@ -113,12 +113,12 @@
             "state": {
               "type": "outgoing-link",
               "state": {
-                "file": "11 Trading/Codex/vwap_pullback_notes.md",
+                "file": "03 Business/James Kenney Gaming/Games/Ocarina of Time/Series Plan.md",
                 "linksCollapsed": false,
                 "unlinkedCollapsed": true
               },
               "icon": "links-going-out",
-              "title": "Outgoing links from vwap_pullback_notes"
+              "title": "Outgoing links from Series Plan"
             }
           },
           {
@@ -156,13 +156,13 @@
             "state": {
               "type": "outline",
               "state": {
-                "file": "11 Trading/Codex/vwap_pullback_notes.md",
+                "file": "03 Business/James Kenney Gaming/Games/Ocarina of Time/Series Plan.md",
                 "followCursor": false,
                 "showSearch": false,
                 "searchQuery": ""
               },
               "icon": "lucide-list",
-              "title": "Outline of vwap_pullback_notes"
+              "title": "Outline of Series Plan"
             }
           }
         ]
@@ -185,25 +185,41 @@
   },
   "active": "f133fba76f36028b",
   "lastOpenFiles": [
-    "11 Trading/Claude/2026-06-17-vwap-pullback-guide.md",
+    "03 Business/James Kenney Gaming/Games/Ocarina of Time/Episode 03 - Kakariko and the Graveyard.md",
+    "03 Business/James Kenney Gaming/Games/Ocarina of Time/Episode 02 - Princess of Destiny.md",
+    "03 Business/James Kenney Gaming/Games/Ocarina of Time/Episode 01 - Great Deku Tree.md",
+    "03 Business/James Kenney Gaming/Games/Ocarina of Time/100 Percent Checklist.md",
+    "03 Business/James Kenney Gaming/Games/Game Selection Scorecard.md",
+    "03 Business/James Kenney Gaming/Growth Plan.md",
+    "03 Business/James Kenney Gaming/Shorts Tracker.md",
+    "03 Business/James Kenney Gaming/Thumbnail System.md",
+    "03 Business/James Kenney Gaming/Channel Dashboard.md",
+    "03 Business/James Kenney Gaming/Analytics Tracker.md",
     "07 Cars/67 Mustang/T5 swap cost and parts breakdown.md",
-    "11 Trading/Codex/vwap_pullback_strategy.pine",
-    "11 Trading/Codex/vwap_pullback_notes.md",
-    "11 Trading/Codex/vwap_pullback_indicator.pine",
-    "11 Trading/Claude/2026-06-17-vwap-pullback-strategy.pine",
-    "11 Trading/Claude/2026-06-17-vwap-pullback-indicator.pine",
-    "11 Trading/Codex",
-    "11 Trading/Claude",
-    "12 Recipes",
-    "11 Trading",
-    "03 Business/Website Business/Ideas.md",
-    "07 Cars/67 Mustang",
-    "03 Business/Website Business/Sales Notes.md",
-    "03 Business/Website Business/Client OnBoarding.md",
-    "03 Business/Website Business/Pricing.md",
-    "03 Business/Website Business/Services.md",
-    "03 Business/Website Business/Website Business - overview.md",
-    "Welcome.md",
-    "03 Business/Website Business"
+    "02 Projects/Projects Dashboard.md",
+    "00 Inbox/Opalite makers website discussion.md",
+    "Tasks/Task Notes/OpaM - see what people did.md",
+    "Tasks/Tasks.base",
+    "10 Templates/Task.md",
+    "Tasks/Tasks Dashboard.md",
+    "Using Codex With This Vault.md",
+    "03 Business/Business Dashboard.md",
+    "03 Business/James Kenney Gaming/Production Workflow.md",
+    "03 Business/James Kenney Gaming/Monthly Review Template.md",
+    "03 Business/James Kenney Gaming/Monetization and Rights.md",
+    "03 Business/James Kenney Gaming/Launch Checklist.md",
+    "03 Business/James Kenney Gaming/Content Calendar.md",
+    "03 Business/James Kenney Gaming/Brand and Channel Setup.md",
+    "03 Business/James Kenney Gaming/Games/Ocarina of Time/Episode 04 - Ranch Valley and Lake.md",
+    "03 Business/James Kenney Gaming/Games/Ocarina of Time/Episode 05 - Lost Woods Collection Finale.md",
+    "03 Business/James Kenney Gaming/Games/Ocarina of Time",
+    "03 Business/James Kenney Gaming/Templates",
+    "03 Business/James Kenney Gaming/Games",
+    "03 Business/James Kenney Gaming",
+    "04 Coding/Vibe Coding/Prompt Vault",
+    "04 Coding/Vibe Coding",
+    "Tasks/Task Notes",
+    "Tasks",
+    "Vault Dashboard.base"
   ]
 }
